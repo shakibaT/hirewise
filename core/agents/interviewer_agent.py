@@ -15,6 +15,8 @@
 # → GENERATING_REPORT → COMPLETED
 
 from core.models import InterviewSession, InterviewStage, ConversationEntry
+from question_generator_agent import generate_questions
+
 
 MAX_FOLLOWUPS = 2
 
@@ -37,7 +39,18 @@ def execute(session: InterviewSession, user_answer: str = None) -> dict:
 
 
 def handle_not_started(session: InterviewSession) -> dict:
-    pass
+    questions = generate_questions(session.jd, session.resume)
+    
+    if not questions:
+        raise ValueError("Question generator returned no questions")
+    
+    session.questions = questions
+    session.stage = InterviewStage.ASKING_QUESTIONS
+    
+    return {
+        "response": session.questions[0],
+        "stage": session.stage
+    }
 
 def handle_asking_questions(session: InterviewSession, user_answer: str) -> dict:
     pass
