@@ -58,8 +58,52 @@ def handle_not_started(session: InterviewSession) -> dict:
         "stage": session.stage
     }
 
+
 def handle_asking_questions(session: InterviewSession, user_answer: str) -> dict:
-    pass
+    # Step 1 - Save Q&A to conversation history
+    current_question = session.questions[session.current_question_index]
+    session.conversation_history.append(ConversationEntry(
+        question=current_question,
+        answer=user_answer
+    ))
+    logger.info(f"Recorded answer for question {session.current_question_index} in session {session.session_id}")
+
+    # Step 2 - Build context from last 5 conversation entries
+    recent_context = session.conversation_history[-5:]
+
+    # Step 3 - Decide if answer is vague
+    # TODO: add this LLM-based function  
+    is_vague = if_answer_is_vague(current_question, user_answer, recent_context)
+
+    # Step 4 - If vague and under MAX_FOLLOWUPS limit
+    if is_vague and session.followup_count < MAX_FOLLOWUPS:
+        logger.info(f"Answer deemed vague for question '{current_question}' in session {session.session_id}")
+        session.stage = InterviewStage.FOLLOWUP
+        session.followup_count += 1
+        return {
+            "response": "Can you please elaborate on your previous answer?",  # TODO: replace with LLM-generated followup
+            "stage": session.stage
+        }
+
+    # Step 5 - Answer is complete, move to next question
+    session.current_question_index += 1
+    session.followup_count = 0
+
+    # Step 6 - Check if interview is finished
+    if session.current_question_index >= len(session.questions):
+        session.stage = InterviewStage.GENERATING_REPORT
+        return {
+            "response": "Thank you for your answers. Generating report...",
+            "stage": session.stage
+        }
+
+    # Step 7 - Return next question
+    session.stage = InterviewStage.ASKING_QUESTIONS
+    return {
+        "response": session.questions[session.current_question_index],
+        "stage": session.stage
+    }
+
 
 def handle_followup(session: InterviewSession, user_answer: str) -> dict:
     pass
