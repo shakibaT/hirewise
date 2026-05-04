@@ -21,11 +21,6 @@ class ConversationEntry:
     answer: str
     followups: list[FollowUp] = field(default_factory=list)
 
-@dataclass
-class InterviewSession:
-    jd: str
-    resume: str
-    candidate_name: str
 
 @dataclass
 class InterviewSession:
