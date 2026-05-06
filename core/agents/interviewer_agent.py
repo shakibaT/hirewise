@@ -140,4 +140,13 @@ def _go_to_next_question(session: InterviewSession) -> dict:
 
 
 def handle_generating_report(session: InterviewSession) -> dict:
-    pass
+    # handle_generating_report → owns: generating report based on conversation history, JD, resume
+    logger.info(f"Generating report for session {session.session_id}")
+    report = generate_report(session.jd, session.resume, session.conversation_history)
+    session.report = report
+    session.stage = InterviewStage.COMPLETED
+    logger.info(f"Completed report generation for session {session.session_id}")
+    return {
+        "response": report,
+        "stage": session.stage
+    }
