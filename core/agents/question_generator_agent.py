@@ -60,3 +60,12 @@ Always respond with valid JSON only. No explanation, no markdown, no extra text.
         raise ValueError(f"Expected 5 questions, got {len(questions)}")
 
     return questions
+
+if __name__ == "__main__":
+    # Example usage
+    jd = input("Please paste the job description: ")
+    resume = input("Please paste the candidate resume: ")
+    questions = generate_questions(jd, resume)
+    print("\n--- Generated Interview Questions ---\n")
+    for i, q in enumerate(questions, 1):
+        print(f"{i}. {q}")
