@@ -14,8 +14,10 @@
 # NOT_STARTED → GENERATING_QUESTIONS → ASKING_QUESTIONS ⇄ FOLLOWUP
 # → GENERATING_REPORT → COMPLETED
 
-from core.models import InterviewSession, InterviewStage, ConversationEntry
+from core.models import FollowUp, InterviewSession, InterviewStage, ConversationEntry
 from question_generator_agent import generate_questions
+from followup_generator_agent import is_answer_vague
+from report_generator_agent import generate_report
 import logging
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,8 @@ def handle_not_started(session: InterviewSession) -> dict:
 
 
 def handle_asking_questions(session: InterviewSession, user_answer: str) -> dict:
+    # handle_asking_questions  → owns: saving answer, deciding if vague, moving to next question
+
     # Step 1 - Save Q&A to conversation history
     current_question = session.questions[session.current_question_index]
     session.conversation_history.append(ConversationEntry(
@@ -73,11 +77,11 @@ def handle_asking_questions(session: InterviewSession, user_answer: str) -> dict
 
     # Step 3 - Decide if answer is vague
     # TODO: add this LLM-based function  
-    is_vague = if_answer_is_vague(current_question, user_answer, recent_context)
+    is_vague = is_answer_vague(current_question, user_answer, recent_context)
 
     # Step 4 - If vague and under MAX_FOLLOWUPS limit
-    if is_vague and session.followup_count < MAX_FOLLOWUPS:
-        logger.info(f"Answer deemed vague for question '{current_question}' in session {session.session_id}")
+    if is_vague:
+        logger.info(f"Answer is vague for question '{current_question}' in session {session.session_id}")
         session.stage = InterviewStage.FOLLOWUP
         session.followup_count += 1
         return {
@@ -86,10 +90,42 @@ def handle_asking_questions(session: InterviewSession, user_answer: str) -> dict
         }
 
     # Step 5 - Answer is complete, move to next question
+    return _go_to_next_question(session)
+
+
+
+def handle_followup(session: InterviewSession, user_answer: str) -> dict:
+    # handle_followup  → owns: saving followup answer, deciding if ANOTHER followup needed, circuit breaker
+    # Step 1 - Save followup answer to conversation history
+    current_question = session.questions[session.current_question_index]
+    last_entry = session.conversation_history[-1]
+    last_entry.followups.append(FollowUp(
+        question=f"Followup to: {current_question}",
+        answer=user_answer
+    ))
+    logger.info(f"Recorded followup answer for question {session.current_question_index} in session {session.session_id}")
+    # Step 2 - Build context from last 5 conversation entries
+    recent_context = session.conversation_history[-5:]
+    # Step 3 - Decide if answer is still vague
+    is_still_vague = is_answer_vague(current_question, user_answer, recent_context)
+    # Step 4 - If still vague and under MAX_FOLLOWUPS limit, ask another followup
+    if is_still_vague and session.followup_count < MAX_FOLLOWUPS:
+        logger.info(f"Answer still deemed vague for question '{current_question}' in session {session.session_id}")
+        session.followup_count += 1
+        return {
+            "response": "I still need more details. Can you please elaborate further?",  # TODO: replace with LLM-generated followup
+            "stage": session.stage
+        }
+    # Step 5 - Move back to ASKING_QUESTIONS stage to either next question or end interview
+    return _go_to_next_question(session)
+
+
+def _go_to_next_question(session: InterviewSession) -> dict:
+    """Helper - moves to next question or ends interview if finished"""
     session.current_question_index += 1
     session.followup_count = 0
+    session.stage = InterviewStage.ASKING_QUESTIONS
 
-    # Step 6 - Check if interview is finished
     if session.current_question_index >= len(session.questions):
         session.stage = InterviewStage.GENERATING_REPORT
         return {
@@ -97,16 +133,11 @@ def handle_asking_questions(session: InterviewSession, user_answer: str) -> dict
             "stage": session.stage
         }
 
-    # Step 7 - Return next question
-    session.stage = InterviewStage.ASKING_QUESTIONS
     return {
         "response": session.questions[session.current_question_index],
         "stage": session.stage
     }
 
-
-def handle_followup(session: InterviewSession, user_answer: str) -> dict:
-    pass
 
 def handle_generating_report(session: InterviewSession) -> dict:
     pass
