@@ -15,9 +15,9 @@
 # → GENERATING_REPORT → COMPLETED
 
 from core.models import FollowUp, InterviewSession, InterviewStage, ConversationEntry
-from core.agents.question_generator import generate_questions
-from core.agents.answer_evaluator import is_answer_vague, generate_followup
-from core.agents.report_generator import generate_report
+from core.agents.question_generator_agent import generate_questions
+from core.agents.followup_generator_agent import is_answer_vague, generate_followup
+from core.agents.report_generator_agent import generate_report
 import logging
 
 logger = logging.getLogger(__name__)
