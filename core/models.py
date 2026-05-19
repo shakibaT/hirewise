@@ -11,6 +11,12 @@ class InterviewStage(Enum):
     GENERATING_REPORT = 'generating_report'
     COMPLETED = 'completed'
 
+
+class AnswerEvaluation(Enum):
+    NEEDS_FOLLOWUP = "needs_followup"
+    ACCEPTABLE = "acceptable"  
+    CANDIDATE_DOESNT_KNOW = "candidate_doesnt_know"
+
 @dataclass
 class FollowUp:
     question: str

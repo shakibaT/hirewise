@@ -14,9 +14,9 @@
 # NOT_STARTED → GENERATING_QUESTIONS → ASKING_QUESTIONS ⇄ FOLLOWUP
 # → GENERATING_REPORT → COMPLETED
 
-from core.models import FollowUp, InterviewSession, InterviewStage, ConversationEntry
+from core.models import FollowUp, InterviewSession, InterviewStage, ConversationEntry, AnswerEvaluation
 from core.agents.question_generator_agent import generate_questions
-from core.agents.followup_generator_agent import is_answer_vague, generate_followup
+from core.agents.followup_generator_agent import evaluate_answer, generate_followup
 from core.agents.report_generator_agent import generate_report
 import logging
 
@@ -61,8 +61,6 @@ def handle_not_started(session: InterviewSession) -> dict:
 
 
 def handle_asking_questions(session: InterviewSession, user_answer: str) -> dict:
-    # handle_asking_questions → owns: saving answer, deciding if vague, moving to next question
-
     # Step 1 - Save Q&A to conversation history
     current_question = session.questions[session.current_question_index]
     session.conversation_history.append(ConversationEntry(
@@ -74,21 +72,27 @@ def handle_asking_questions(session: InterviewSession, user_answer: str) -> dict
     # Step 2 - Build context from last 5 conversation entries
     recent_context = session.conversation_history[-5:]
 
-    # Step 3 - Decide if answer is vague
-    is_vague = is_answer_vague(current_question, user_answer, recent_context)
+    # Step 3 - Evaluate answer
+    evaluation = evaluate_answer(current_question, user_answer, recent_context)
+    logger.info(f"Answer evaluation: {evaluation.value} for question {session.current_question_index}")
 
-    # Step 4 - If vague transition to followup
-    if is_vague:
-        logger.info(f"Answer is vague for question '{current_question}' in session {session.session_id}")
+    # Step 4 - Route based on evaluation
+    if evaluation == AnswerEvaluation.NEEDS_FOLLOWUP:
         session.stage = InterviewStage.FOLLOWUP
         session.followup_count += 1
+        session.conversation_history[-1].evaluation = evaluation.value
         return {
             "response": generate_followup(current_question, user_answer, recent_context),
             "stage": session.stage
         }
 
-    # Step 5 - Answer is complete, move to next question
-    return _go_to_next_question(session)
+    elif evaluation == AnswerEvaluation.CANDIDATE_DOESNT_KNOW:
+        session.conversation_history[-1].evaluation = evaluation.value
+        return _go_to_next_question(session)
+
+    else:  # ACCEPTABLE
+        session.conversation_history[-1].evaluation = evaluation.value
+        return _go_to_next_question(session)
 
 
 def handle_followup(session: InterviewSession, user_answer: str) -> dict:
@@ -107,19 +111,23 @@ def handle_followup(session: InterviewSession, user_answer: str) -> dict:
     # Step 2 - Build context from last 5 conversation entries
     recent_context = session.conversation_history[-5:]
 
-    # Step 3 - Decide if answer is still vague
-    is_still_vague = is_answer_vague(current_question, user_answer, recent_context)
+    # Step 3 - Evaluate followup answer
+    evaluation = evaluate_answer(current_question, user_answer, recent_context)
 
-    # Step 4 - If still vague and under MAX_FOLLOWUPS limit
-    if is_still_vague and session.followup_count < MAX_FOLLOWUPS:
-        logger.info(f"Answer still vague for question {session.current_question_index} in session {session.session_id}")
+    # Step 4 - Circuit breaker first
+    if session.followup_count >= MAX_FOLLOWUPS:
+        logger.info(f"Max followups reached for question {session.current_question_index}")
+        return _go_to_next_question(session)
+
+    # Step 5 - Still needs followup?
+    if evaluation == AnswerEvaluation.NEEDS_FOLLOWUP:
         session.followup_count += 1
         return {
             "response": generate_followup(current_question, user_answer, recent_context),
             "stage": session.stage
         }
 
-    # Step 5 - Move to next question
+    # Step 6 - Acceptable or doesn't know
     return _go_to_next_question(session)
 
 
